@@ -615,6 +615,8 @@ let saveTimer = null;
 let gistSyncTimer = null;
 let ghToken = localStorage.getItem('flipLedgerGhToken') || '';
 let ghGistId = localStorage.getItem('flipLedgerGistId') || '';
+let lastSyncedSnapshot = null;
+let rateLimitedUntil = 0;
 
 function applyState(parsed){
   state.vehicles = (parsed.vehicles || []).map(migrateItem);
@@ -664,12 +666,17 @@ async function syncFromGist(){
   }
   if(ghGistId){
     const res = await fetch('https://api.github.com/gists/'+ghGistId, { headers:{ Authorization:'token '+ghToken } });
+    if(res.status === 403){
+      rateLimitedUntil = Date.now() + 5*60*1000;
+      throw new Error('rate limited');
+    }
     if(!res.ok) throw new Error('fetch gist failed: '+res.status);
     const data = await res.json();
     const file = data.files['flip-ledger.json'];
     if(file && file.content){
       applyState(JSON.parse(file.content));
       localStorage.setItem('flipLedgerState', JSON.stringify(state));
+      lastSyncedSnapshot = JSON.stringify(state);
     }
   }
 }
@@ -685,39 +692,69 @@ function saveAll(){
 
 function scheduleGistSync(){
   if(!ghToken) return;
+  if(Date.now() < rateLimitedUntil){
+    const mins = Math.ceil((rateLimitedUntil - Date.now())/60000);
+    setSyncStatus('error', 'GitHub is rate-limiting requests — saving locally, will resume syncing in ~'+mins+' min.');
+    return;
+  }
   clearTimeout(gistSyncTimer);
-  gistSyncTimer = setTimeout(doGistSync, 1200);
+  gistSyncTimer = setTimeout(doGistSync, 4000);
 }
 
 async function doGistSync(){
+  const snapshot = JSON.stringify(state);
+  if(snapshot === lastSyncedSnapshot){
+    return; // nothing changed since last successful sync — skip the network call
+  }
   try{
+    let res;
     if(!ghGistId){
-      const res = await fetch('https://api.github.com/gists', {
+      res = await fetch('https://api.github.com/gists', {
         method:'POST',
         headers:{ Authorization:'token '+ghToken, 'Content-Type':'application/json' },
         body: JSON.stringify({
           description: 'Flip Ledger data — do not delete',
           public: false,
-          files: { 'flip-ledger.json': { content: JSON.stringify(state) } }
+          files: { 'flip-ledger.json': { content: snapshot } }
         })
       });
+      if(res.status === 403){ await handleRateLimit(res); return; }
       if(!res.ok) throw new Error('create gist failed: '+res.status);
       const data = await res.json();
       ghGistId = data.id;
       localStorage.setItem('flipLedgerGistId', ghGistId);
     }else{
-      const res = await fetch('https://api.github.com/gists/'+ghGistId, {
+      res = await fetch('https://api.github.com/gists/'+ghGistId, {
         method:'PATCH',
         headers:{ Authorization:'token '+ghToken, 'Content-Type':'application/json' },
-        body: JSON.stringify({ files: { 'flip-ledger.json': { content: JSON.stringify(state) } } })
+        body: JSON.stringify({ files: { 'flip-ledger.json': { content: snapshot } } })
       });
+      if(res.status === 403){ await handleRateLimit(res); return; }
       if(!res.ok) throw new Error('update gist failed: '+res.status);
     }
+    lastSyncedSnapshot = snapshot;
     setSyncStatus('ok', '✓ Connected — synced via GitHub Gist');
   }catch(e){
     console.error('gist save failed', e);
     setSyncStatus('error', 'Saved on this browser, but GitHub sync failed — check your token.');
   }
+}
+
+async function handleRateLimit(res){
+  let mins = 5;
+  try{
+    const data = await res.json();
+    if(/rate limit/i.test(data.message || '')){
+      rateLimitedUntil = Date.now() + 5*60*1000;
+    }else{
+      // 403 for a different reason (bad token, wrong scope, etc.) — don't apply cooldown
+      setSyncStatus('error', 'GitHub rejected the request: '+(data.message || 'check your token.'));
+      return;
+    }
+  }catch(e){
+    rateLimitedUntil = Date.now() + 5*60*1000;
+  }
+  setSyncStatus('error', 'GitHub is rate-limiting requests — saving locally, will resume syncing in ~'+mins+' min.');
 }
 
 async function connectGithub(){
