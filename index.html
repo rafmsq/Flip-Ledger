@@ -756,6 +756,7 @@ function newItem(){
     mileage:'',
     saleAmount:'',
     buyFee:'',
+    reassignFee:'',
     feeToOwner:'',
     transportFee:'',
     gas:'',
@@ -777,6 +778,9 @@ function migrateItem(item){
   if(item.buyFee === undefined || item.buyFee === null){
     item.buyFee = computeBuyFee(item.saleAmount);
   }
+  if(item.reassignFee === undefined || item.reassignFee === null){
+    item.reassignFee = computeReassignment(item.saleAmount);
+  }
   if(!item.expenses){
     const legacy = [];
     if(Number(item.gas)) legacy.push({id:genExpId(), desc:'Gas', amount:item.gas});
@@ -789,7 +793,7 @@ function migrateItem(item){
 
 function computeTotals(v){
   const buyFee = Number(v.buyFee)||0;
-  const reassignFee = computeReassignment(v.saleAmount);
+  const reassignFee = Number(v.reassignFee)||0;
   const sale = Number(v.saleAmount)||0;
   const feeToOwner = Number(v.feeToOwner)||0;
   const transport = Number(v.transportFee)||0;
@@ -807,11 +811,9 @@ function computeTotals(v){
 // so typing never loses focus.
 function updateComputedDisplay(v){
   const t = computeTotals(v);
-  const reassignEl = document.getElementById('reassign-'+v.id);
   const expEl = document.getElementById('expsub-'+v.id);
   const totalEl = document.getElementById('total-'+v.id);
   const profitEl = document.getElementById('profit-'+v.id);
-  if(reassignEl) reassignEl.textContent = fmt(t.reassignFee);
   if(expEl) expEl.textContent = fmt(t.expensesTotal);
   if(totalEl) totalEl.textContent = fmt(t.total);
   if(profitEl){
@@ -868,6 +870,9 @@ function updateField(collection, id, field, value){
     v.buyFee = computeBuyFee(value);
     const buyFeeEl = document.getElementById('buyfeeinput-'+id);
     if(buyFeeEl) buyFeeEl.value = v.buyFee;
+    v.reassignFee = computeReassignment(value);
+    const reassignFeeEl = document.getElementById('reassignfeeinput-'+id);
+    if(reassignFeeEl) reassignFeeEl.value = v.reassignFee;
   }
   saveAll();
   updateComputedDisplay(v);
@@ -990,9 +995,10 @@ function cardTemplate(collection, v){
       <input class="num-input" type="number" placeholder="0" value="${v.feeToOwner}"
         oninput="updateField('${collection}','${v.id}','feeToOwner', this.value)">
     </div>
-    <div class="row computed">
+    <div class="row">
       <label>Reassignment Fee</label>
-      <div class="computed-val" id="reassign-${v.id}">${fmt(t.reassignFee)}</div>
+      <input class="num-input" type="number" id="reassignfeeinput-${v.id}" placeholder="0" value="${v.reassignFee}"
+        oninput="updateField('${collection}','${v.id}','reassignFee', this.value)">
     </div>
     <div class="row">
       <label>Any Transport Fee</label>
