@@ -794,7 +794,7 @@ function newItem(){
     saleAmount:'',
     buyFee:'',
     reassignFee:'',
-    feeToOwner:'',
+    feeToOwner:'35',
     transportFee:'',
     gas:'',
     repairsFee:'',
@@ -1032,7 +1032,7 @@ function cardTemplate(collection, v){
         oninput="updateField('${collection}','${v.id}','buyFee', this.value)">
     </div>
     <div class="row">
-      <label>Fee to Owner</label>
+      <label>Third Party Processing Fee</label>
       <input class="num-input" type="number" placeholder="0" value="${v.feeToOwner}"
         oninput="updateField('${collection}','${v.id}','feeToOwner', this.value)">
     </div>
